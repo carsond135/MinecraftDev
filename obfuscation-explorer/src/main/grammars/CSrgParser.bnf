@@ -1,0 +1,3 @@
+{
+    parserClass="io.mcdev.obfex.formats.csrg.gen.parser.CSrgParser"
+}

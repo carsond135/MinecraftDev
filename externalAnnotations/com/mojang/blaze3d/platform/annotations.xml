@@ -1,0 +1,5 @@
+<root>
+    <item name="com.mojang.blaze3d.platform.InputConstants com.mojang.blaze3d.platform.InputConstants.Key getKey(java.lang.String) 0">
+        <annotation name="com.demonwav.mcdev.annotations.Translatable"/>
+    </item>
+</root>
