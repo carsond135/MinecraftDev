@@ -164,7 +164,7 @@ class ClassMappingElement(
         methods(name.asRef(desc))
 
     fun methods(name: String, desc: MethodDescriptor? = null): List<MethodMappingElement> =
-        fields(name.asMethodRef(desc))
+        methods(name.asMethodRef(desc))
 
     fun methods(ns: MappingNamespace, ref: LocalMethodRef): List<MethodMappingElement> {
         if (ref.desc == null) {
@@ -198,24 +198,27 @@ class ClassMappingElement(
     fun method(ns: MappingNamespace, name: MethodName, desc: MethodDescriptor? = null): MethodMappingElement? =
         method(ns, name.asRef(desc))
 
-    fun method(ns: MappingNamespace, name: String, desc: TypeDef? = null): FieldMappingElement? =
-        field(ns, name.asFieldRef(type))
+    fun method(ns: MappingNamespace, name: String, desc: MethodDescriptor? = null): MethodMappingElement? =
+        method(ns, name.asMethodRef(desc))
 
-    fun field(ref: LocalFieldRef): FieldMappingElement? {
-        return mappingSet.namespaces.firstNotNullOfOrNull { ns -> field(ns, ref) }
+    fun method(ref: LocalMethodRef): MethodMappingElement? {
+        return mappingSet.namespaces.firstNotNullOfOrNull { ns -> method(ns, ref) }
     }
 
-    fun field(name: FieldName, type: TypeDef? = null): FieldMappingElement? = field(name.asRef(type))
-    fun field(name: String, type: TypeDef? = null): FieldMappingElement? = field(name.asFieldRef(type))
+    fun method(name: MethodName, desc: MethodDescriptor? = null): MethodMappingElement? =
+        method(name.asRef(desc))
 
-    fun addFieldMapping(
+    fun method(name: String, desc: MethodDescriptor? = null): MethodMappingElement? =
+        method(name.asMethodRef(desc))
+
+    fun addMethodMapping(
         names: Array<String?>,
         location: MappingLocation,
-        type: TypeDef? = null,
+        descriptor: MethodDescriptor,
         metadata: MemberMetadata = MemberMetadata.UNKNOWN,
-    ): FieldMappingElement {
-        val element = FieldMappingElement(names, this, type, metadata, mappingSet, location)
-        fieldStore.add(element)
+    ): MethodMappingElement {
+        val element = MethodMappingElement(names, this, descriptor, metadata, mappingSet, location)
+        methodStore.add(element)
         return element
     }
 }
@@ -238,6 +241,101 @@ class MethodMappingElement(
     override val location: MappingLocation = UnknownLocation,
 ) : MappingElement {
 
+    private val paramMappings = ParamMap<MethodParameterMappingElement>()
+    private val localVarMappings = ArrayList<LocalVariableMappingElement>()
+
+    fun descriptor(ns: MappingNamespace): String =
+        "(" + descriptor.params.joinToString("") { mappingSet.mapTypeTo(ns, it).descriptor } + ")" +
+                mappingSet.mapTypeTo(ns, descriptor.returnType).descriptor
+
+    fun params(): Collection<MethodParameterMappingElement> {
+        return Collections.unmodifiableCollection(paramMappings.values)
+    }
+
+    fun param(index: ParamIndex): MethodParameterMappingElement? {
+        return paramMappings[index]
+    }
+
+    fun param(index: Int): MethodParameterMappingElement? = param(index.asParamIndex())
+
+    fun addParamMapping(
+        names: Array<String?>,
+        location: MappingLocation,
+        paramIndex: ParamIndex,
+        lvtIndex: LvtIndex = LvtIndex.UNKNOWN,
+        type: TypeDef? = null,
+    ): MethodParameterMappingElement {
+        val existing = paramMappings[paramIndex]
+
+        if (existing != null && location.priority <= existing.location.priority) {
+            return existing
+        } else {
+            val element = MethodParameterMappingElement(names, this, paramIndex, lvtIndex, type, mappingSet, location)
+            paramMappings[paramIndex] = element
+            return element
+        }
+    }
+
+    fun localVars(): Collection<LocalVariableMappingElement> {
+        return Collections.unmodifiableCollection(localVarMappings)
+    }
+
+    fun localVars(
+        lvtIndex: LvtIndex = LvtIndex.UNKNOWN,
+        localVarIndex: LocalVarIndex = LocalVarIndex.UNKNOWN
+    ): List<LocalVariableMappingElement> {
+        return localVarMappings.filter {
+            (!lvtIndex.isKnown || it.lvtIndex == lvtIndex) &&
+                (!localVarIndex.index.isKnown || localVarIndex.index == it.localVarIndex.index) &&
+                (!localVarIndex.localStart.isKnown || localVarIndex.localStart == it.localVarIndex.localStart) &&
+                (!localVarIndex.localEnd.isKnown || localVarIndex.localEnd == it.localVarIndex.localEnd)
+        }
+    }
+
+    fun localVars(index: LocalVarIndex): List<LocalVariableMappingElement> {
+        return localVars(localVarIndex = index)
+    }
+
+    fun localVar(index: LocalVarIndex): LocalVariableMappingElement? {
+        return localVars(index).firstOrNull()
+    }
+
+    fun localVars(index: LvtIndex): List<LocalVariableMappingElement> {
+        return localVars(lvtIndex = index)
+    }
+
+    fun localVar(index: LvtIndex): LocalVariableMappingElement? {
+        return localVars(index).firstOrNull()
+    }
+
+    fun addLocalVarMapping(
+        names: Array<String?>,
+        location: MappingLocation,
+        localVarIndex: LocalVarIndex = LocalVarIndex.UNKNOWN,
+        lvtIndex: LvtIndex = LvtIndex.UNKNOWN,
+        type: TypeDef? = null,
+    ): LocalVariableMappingElement {
+        val existing = localVars(localVarIndex = localVarIndex, lvtIndex = lvtIndex)
+        if (existing.isNotEmpty() && location.priority <= existing.first().location.priority) {
+            return existing.first()
+        } else {
+            val element = LocalVariableMappingElement(names, this, localVarIndex, lvtIndex, type, mappingSet, location)
+            localVarMappings += element
+            return element
+        }
+    }
+}
+
+class MethodParameterMappingElement(
+    override val names: Array<String?>,
+    val containingMethod: MethodMappingElement,
+    val index: ParamIndex,
+    val lvtIndex: LvtIndex = LvtIndex.UNKNOWN,
+    val type: TypeDef? = null,
+    override val mappingSet: MappingSet = containingMethod.mappingSet,
+    override val location: MappingLocation = UnknownLocation,
+) : MappingElement {
+    fun hasLvtIndex() = lvtIndex.isKnown
 }
 
 data class MemberMetadata(
